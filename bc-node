@@ -71,10 +71,6 @@ machinectl clone $base node-$ver
 mkdir -p /etc/systemd/nspawn
 
 cat <<__END > /etc/systemd/nspawn/node-$ver.nspawn
-[Exec]
-ProcessTwo=yes
-Parameters=/bin/node --base-path $chain_data --dev
-
 [Files]
 Bind=/root/releases/$ver/node:/bin/node
 Bind=$chain_data
@@ -85,6 +81,21 @@ Port=30333
 Port=80:9944
 __END
 
+cat <<__END > /var/lib/machines/node-$ver/etc/systemd/system/node.service
+[Unit]
+Description=Blockchain node
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/node --base-path /var/lib/chain --dev
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+__END
+
+systemd-nspawn -n -M node-$ver /usr/bin/systemctl enable node
 # machinectl enable node-$ver
 EOF
 
