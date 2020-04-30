@@ -22,6 +22,9 @@ What=$DISK
 Where=$1
 Type=btrfs
 Options=subvol=$svol
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
 	btrfs subvolume create /btrfs/$svol
