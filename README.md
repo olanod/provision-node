@@ -5,4 +5,3 @@ on an Archlinux server(using in my personal machine and as a Linode StackScript)
 
 ### tools
 `node_fetch` downloads the latest github release artifact in the specified repo.
-`node_enable` creates a container image that can be launched with `machinectl`.
