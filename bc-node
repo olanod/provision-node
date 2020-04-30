@@ -37,14 +37,15 @@ create_mount /var/lib/machines
 create_mount /var/lib/chain
 create_mount /root/releases
 
-# create base images for single binary container
+# create base images for static single binary container
 btrfs subvolume create /var/lib/machines/empty
 pacstrap -c /var/lib/machines/empty filesystem
 machinectl read-only empty
-# for dynamic linked rust binaries
-machinectl clone empty glibc
-pacstrap -c /var/lib/machines/glibc glibc gcc-libs zlib
-machinectl read-only glibc
+# general purpose base system
+btrfs subvolume create /var/lib/machines/base
+pacstrap -c /var/lib/machines/base base
+systemd-nspawn -M base /usr/bin/systemctl enable systemd-networkd systemd-resolved
+machinectl read-only base
 
 cat <<\EOF > /usr/local/bin/node_fetch
 #!/bin/bash
@@ -63,7 +64,7 @@ EOF
 cat <<\EOF > /usr/local/bin/node_enable
 #!/bin/bash
 set -e
-base=glibc
+base=base
 ver=`cat /root/releases/latest`
 chain_data=/var/lib/chain
 machinectl clone $base node-$ver
