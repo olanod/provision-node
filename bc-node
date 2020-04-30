@@ -1,105 +1,63 @@
 #!/bin/bash
 set -e
 
-pacman -Syu --noconfirm rxvt-unicode-terminfo bash-completion btrfs-progs jq arch-install-scripts
+pacman -Syu --noconfirm \
+	rxvt-unicode-terminfo bash-completion btrfs-progs jq cockpit-dashboard packagekit udisks2
 
-# prepare external disk to hold blockchain data
+# use external disk for blockchain data
 DISK=/dev/sdc # TODO detect in a smart way
-mkfs.btrfs -f -L machines $DISK
-mkdir /btrfs && mount $DISK /btrfs
+mkfs.btrfs -f -L data $DISK
+mount $DISK /mnt
+btrfs subvolume create /mnt/chain
 
-create_mount() {
-	name=`[[ $1 == /* ]] && echo ${1:1} || echo $1`
-	name=${name//\//-}
-	svol=`basename $1`
-
-	cat <<EOF > /etc/systemd/system/$name.mount
+# enable mount 
+cat <<EOF > /etc/systemd/system/var-lib-chain.mount
 [Unit]
-Description=$svol storage
+Description=Chain data
 
 [Mount]
 What=$DISK
-Where=$1
+Where=/var/lib/chain
 Type=btrfs
-Options=subvol=$svol
+Options=subvol=chain
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-	btrfs subvolume create /btrfs/$svol
-	systemctl daemon-reload
-	systemctl enable $name.mount
-	systemctl start $name.mount
-}
-
-create_mount /var/lib/machines
-create_mount /var/lib/chain
-create_mount /root/releases
-
-# create base images for static single binary container
-btrfs subvolume create /var/lib/machines/empty
-pacstrap -c /var/lib/machines/empty filesystem
-machinectl read-only empty
-# general purpose base system
-btrfs subvolume create /var/lib/machines/base
-pacstrap -c /var/lib/machines/base base
-systemd-nspawn -M base /usr/bin/systemctl enable systemd-networkd systemd-resolved
-machinectl read-only base
-
-cat <<\EOF > /usr/local/bin/node_fetch
+cat <<\EOF > /usr/local/bin/node_update
 #!/bin/bash
 set -e
 repo=${1:-valibre-org/node}
 json=`curl -fsL https://api.github.com/repos/$repo/releases/latest`
 url=`echo $json | jq -r '.assets[0].browser_download_url'`
 ver=`echo $json | jq -r .tag_name`
-
-mkdir -p ~/releases/$ver
-curl -fsL $url > ~/releases/$ver/node
-chmod +x ~/releases/$ver/node
-echo $ver > ~/releases/latest
+dest=/usr/local/bin/node-$ver
+curl -fsL $url > $dest
+chmod +x $dest
+ln -sf $dest /usr/local/bin/node
 EOF
+chmod +x /usr/local/bin/node_update
 
-cat <<\EOF > /usr/local/bin/node_enable
-#!/bin/bash
-set -e
-base=base
-ver=`cat /root/releases/latest`
-chain_data=/var/lib/chain
-machinectl clone $base node-$ver
-mkdir -p /etc/systemd/nspawn
-
-cat <<__END > /etc/systemd/nspawn/node-$ver.nspawn
-[Files]
-Bind=/root/releases/$ver/node:/bin/node
-Bind=$chain_data
-PrivateUsersChown=yes
-
-[Network]
-Port=30333
-Port=80:9944
-__END
-
-cat <<__END > /var/lib/machines/node-$ver/etc/systemd/system/node.service
+cat <<EOF > /etc/systemd/system/node.service
 [Unit]
 Description=Blockchain node
-After=network.target
+After=network.target var-lib-chain.mount
 
 [Service]
 Type=simple
-ExecStart=/bin/node --base-path /var/lib/chain --dev
+ExecStart=/usr/local/bin/node --base-path /var/lib/chain --dev --ws-port 80 --ws-external
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-__END
-
-systemd-nspawn -n -M node-$ver /usr/bin/systemctl enable node
-# machinectl enable node-$ver
 EOF
 
-chmod +x /usr/local/bin/node_fetch
-chmod +x /usr/local/bin/node_enable
+node_update
+systemctl daemon-reload
+systemctl enable var-lib-chain.mount
+systemctl enable node
+systemctl start var-lib-chain.mount
+systemctl start node
+sudo systemctl enable --now cockpit.socket
 
-reboot
