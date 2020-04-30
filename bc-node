@@ -67,15 +67,18 @@ base=glibc
 ver=`cat /root/releases/latest`
 chain_data=/var/lib/chain
 machinectl clone $base node-$ver
-
 mkdir -p /etc/systemd/nspawn
+
 cat <<__END > /etc/systemd/nspawn/node-$ver.nspawn
 [Exec]
 ProcessTwo=yes
-Parameters=/bin/node --base-path $chain_data --alice --validator
+Parameters=/bin/node --base-path $chain_data --dev
+
 [Files]
 Bind=/root/releases/$ver/node:/bin/node
 Bind=$chain_data
+PrivateUsersChown=yes
+
 [Network]
 Port=30333
 Port=80:9944
